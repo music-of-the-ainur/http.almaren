@@ -8,8 +8,11 @@ libraryDependencies += "com.github.music-of-the-ainur" %% "http-almaren" % "0.1.
 ```
 spark-shell --master "local[*]" --packages "com.github.music-of-the-ainur:almaren-framework_2.11:0.9.0-2.4,com.github.music-of-the-ainur:http-almaren_2.11:0.1.3-2.4"
 ```
+## Methods
 
-## Example
+### HTTP
+
+#### Example
 
 ```scala
 import com.github.music.of.the.ainur.almaren.Almaren
@@ -89,7 +92,7 @@ Output:
 +-----------+---------+--------+---+-----------+---------------------------------------------+-----+------------+
 ```
 
-## Parameters
+#### Parameters
 
 | Parameter      | Description                                                                                                             | Type                                                               |
 |----------------|-------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|
@@ -103,9 +106,9 @@ Output:
 | batchSize      | How many records a single thread will process                                                                           | Int                                                                |
 
 
-## Special Columns
+#### Special Columns
 
-### Input:
+##### Input:
 
 | Parameters   | Mandatory | Description                                                                        |
 |--------------|-----------|------------------------------------------------------------------------------------|
@@ -114,7 +117,7 @@ Output:
 | \_\_DATA\_\_ | No        | Data Content (productName,producePrice) , used in POST Method HTTP requests        |
 
 
-### Output:
+##### Output:
 
 | Parameters           | Description                                        |
 |----------------------|----------------------------------------------------|
@@ -126,7 +129,7 @@ Output:
 | \_\_ERROR\_\_        | Java Exception                                     |
 | \_\_ELAPSED_TIME\_\_ | Request time in ms                                 |
 
-## Methods
+#### Methods
 
 The following methods are supported:
 
@@ -137,7 +140,7 @@ The following methods are supported:
 - DELETE
 - PUT
 
-## Session
+#### Session
 
 You can give an existing [session](https://github.com/lihaoyi/requests-scala#sessions) to the HTTP component.
 To see all details check the [documentation](https://github.com/lihaoyi/requests-scala#sessions)
@@ -156,7 +159,7 @@ almaren.builder
 
 ```
 
-## Request Handler
+#### Request Handler
 
 You can overwrite the default _requestHandler_ closure to give any custom HTTP Request.
 
@@ -179,3 +182,4 @@ almaren.builder
     .http(method = "POST", requestHandler = customHandler)
 ```
 
+### HTTP Batch

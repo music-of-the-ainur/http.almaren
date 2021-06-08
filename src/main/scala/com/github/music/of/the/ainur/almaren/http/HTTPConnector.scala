@@ -29,7 +29,7 @@ object Alias {
 }
 
 
-private[almaren] case class MainHTTP(
+private[almaren] case class HTTP(
   headers: Map[String, String],
   params: Map[String, String],
   method: String,
@@ -41,7 +41,7 @@ private[almaren] case class MainHTTP(
   batchSize: Int) extends Main {
 
   override def core(df: DataFrame): DataFrame = {
-    logger.info(s"headers:{$headers},params:{$params}, method:{$method}, connectTimeout:{$connectTimeout}, readTimeout{$readTimeout}, threadPoolSize:{$threadPoolSize}")
+    logger.info(s"headers:{$headers},params:{$params}, method:{$method}, connectTimeout:{$connectTimeout}, readTimeout{$readTimeout}, threadPoolSize:{$threadPoolSize}, batchSize:{$batchSize}")
 
     import df.sparkSession.implicits._
 
@@ -81,6 +81,62 @@ private[almaren] case class MainHTTP(
   }
 }
 
+private[almaren] case class HTTPBatch(
+  url: String,
+  headers: Map[String, String],
+  params: Map[String, String],
+  method: String,
+  requestHandler: (String, Session, String, Map[String, String], Map[String, String], String, Int, Int) => requests.Response,
+  session: () => requests.Session,
+  connectTimeout: Int,
+  readTimeout: Int,
+  batchSize: Int,
+  batchDelimiter: (Seq[Row]) => String
+) extends Main {
+
+  override def core(df: DataFrame): DataFrame = {
+    logger.info(s"url:{$url}, headers:{$headers},params:{$params}, method:{$method}, connectTimeout:{$connectTimeout}, readTimeout{$readTimeout}, batchSize:{$batchSize}")
+
+    import df.sparkSession.implicits._
+
+    val result = df.mapPartitions(partition => {
+      partition.grouped(batchSize).flatMap(rows => {
+        val s = session()
+        val data = batchDelimiter(rows)
+        val startTime = System.currentTimeMillis()
+        Try{request(data,s)} match {
+          case Success(r) => rows.map(row =>
+            Response(
+              row.getAs[Any](Alias.IdCol).toString(),
+              Some(r.text()),
+              r.headers,
+              Some(r.statusCode),
+              Some(r.statusMessage),
+              `__ELAPSED_TIME__` = System.currentTimeMillis() - startTime,
+              `__URL__` = url)
+          )
+          case Failure(f) => {
+            logger.error("Almaren HTTP Request Error", f)
+            rows.map(row => 
+              Response(
+                row.getAs[Any](Alias.IdCol).toString(),
+                `__ERROR__` = Some(f.getMessage()),
+                `__ELAPSED_TIME__` = System.currentTimeMillis() - startTime,
+                `__URL__` = url)
+            )
+          }
+        }
+      })
+    })
+    result.toDF
+  }
+
+  private def request(data:String, session:Session): requests.Response = 
+    requestHandler(data,session,url,headers,params,method,connectTimeout,readTimeout)
+
+
+}
+
 private[almaren] trait HTTPConnector extends Core {
 
   def http(
@@ -93,7 +149,7 @@ private[almaren] trait HTTPConnector extends Core {
     readTimeout: Int = 1000,
     threadPoolSize: Int = 1,
     batchSize: Int = 5000): Option[Tree] =
-    MainHTTP(
+    HTTP(
       headers,
       params,
       method,
@@ -105,6 +161,30 @@ private[almaren] trait HTTPConnector extends Core {
       batchSize
     )
 
+  def httpBatch(
+    url: String,
+    headers: Map[String, String] = Map(),
+    params: Map[String, String] = Map(),
+    method: String,
+    requestHandler: (String, Session, String, Map[String, String], Map[String, String], String, Int, Int) => requests.Response = HTTP.defaultHandlerBatch,
+    session: () => requests.Session = HTTP.defaultSession,
+    connectTimeout: Int = 60000,
+    readTimeout: Int = 1000,
+    batchSize: Int = 5000,
+    batchDelimiter: (Seq[Row]) => String = HTTP.defaultBatchDelimiter
+  ): Option[Tree] =
+    HTTPBatch(
+      url,
+      headers,
+      params,
+      method,
+      requestHandler,
+      session,
+      connectTimeout,
+      readTimeout,
+      batchSize,
+      batchDelimiter
+    )
 }
 
 object HTTP {
@@ -120,8 +200,21 @@ object HTTP {
     }
   }
 
+  val defaultHandlerBatch = (data:String, session:Session, url:String, headers:Map[String, String], params:Map[String, String], method:String, connectTimeout:Int, readTimeout:Int) => {
+    method.toUpperCase match {
+      case "GET" => session.get(url, headers = headers, params = params, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case "DELETE" => session.delete(url, headers = headers, params = params, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case "OPTIONS" => session.options(url, headers = headers, params = params, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case "HEAD" => session.head(url, headers = headers, params = params, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case "POST" => session.post(url, headers = headers, params = params, data = data, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case "PUT" => session.put(url, headers = headers, params = params, data = data, readTimeout = readTimeout, connectTimeout = connectTimeout)
+      case method => throw new Exception(s"Invalid Method: $method")
+    }
+  }
+
+  val defaultBatchDelimiter = (rows:Seq[Row]) => rows.map(row => row.getAs[String](Alias.DataCol)).mkString("\n")
+
   val defaultSession = () => requests.Session()
 
   implicit class HTTPImplicit(val container: Option[Tree]) extends HTTPConnector
-
 }
